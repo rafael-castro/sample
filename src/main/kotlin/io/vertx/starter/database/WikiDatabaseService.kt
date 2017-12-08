@@ -4,12 +4,13 @@ import io.vertx.codegen.annotations.Fluent
 import io.vertx.codegen.annotations.ProxyGen
 import io.vertx.core.AsyncResult
 import io.vertx.core.Handler
-import io.vertx.core.Vertx
 import io.vertx.core.json.JsonArray
 import io.vertx.core.json.JsonObject
-import io.vertx.ext.jdbc.JDBCClient
+import javax.annotation.processing.SupportedSourceVersion
+import javax.lang.model.SourceVersion
 
 @ProxyGen
+@SupportedSourceVersion(SourceVersion.RELEASE_8)
 interface WikiDatabaseService {
 
   @Fluent
@@ -27,13 +28,4 @@ interface WikiDatabaseService {
   @Fluent
   fun deletePage(id: Int, resultHandler: Handler<AsyncResult<Void>>): WikiDatabaseService
 
-  companion object {
-    fun create(dbClient: JDBCClient, sqlQueries: HashMap<SqlQuery, String>, readyHandler: Handler<AsyncResult<WikiDatabaseService>>): WikiDatabaseService {
-      return WikiDatabaseServiceImpl(dbClient, sqlQueries, readyHandler)
-    }
-
-    fun createProxy(vertx: Vertx, address: String): WikiDatabaseService {
-      return WikiDatabaseServiceVertxEBProxy(vertx, address)
-    }
-  }
 }

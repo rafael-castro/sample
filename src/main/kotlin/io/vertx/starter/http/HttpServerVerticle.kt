@@ -14,6 +14,9 @@ import io.vertx.ext.web.RoutingContext
 import io.vertx.starter.database.WikiDatabaseService
 import org.slf4j.LoggerFactory
 import java.util.Date
+import io.vertx.serviceproxy.ServiceProxyBuilder
+
+
 
 class HttpServerVerticle : AbstractVerticle() {
 
@@ -26,18 +29,18 @@ class HttpServerVerticle : AbstractVerticle() {
 
   private val templateEngine: FreeMarkerTemplateEngine = FreeMarkerTemplateEngine.create()
 
-  private val wikiDbQueue: String
+  private lateinit var wikiDbQueue: String
 
-  private val dbService: WikiDatabaseService
-
-  init {
-    wikiDbQueue = config().getString(CONFIG_WIKIDB_QUEUE, "wikidb.queue")
-    dbService = WikiDatabaseService.createProxy(vertx, wikiDbQueue)
-  }
+  private lateinit var dbService: WikiDatabaseService
 
   @Throws(Exception::class)
   override fun start(startFuture: Future<Void>){
     val server = vertx.createHttpServer()
+
+
+    wikiDbQueue = config().getString(CONFIG_WIKIDB_QUEUE, "wikidb.queue")
+    val builder = ServiceProxyBuilder(vertx).setAddress(wikiDbQueue)
+    dbService = builder.build(WikiDatabaseService::class.java)
 
     val router = Router.router(vertx)
     router.get("/").handler(this::indexHandler)

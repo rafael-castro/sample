@@ -5,11 +5,13 @@ import io.vertx.core.Future
 import io.vertx.core.Handler
 import io.vertx.core.json.JsonObject
 import io.vertx.ext.jdbc.JDBCClient
-import io.vertx.serviceproxy.ProxyHelper
 import org.slf4j.LoggerFactory
 import java.io.FileInputStream
 import java.io.IOException
 import java.util.Properties
+import io.vertx.serviceproxy.ServiceBinder
+
+
 
 class WikiDatabaseVerticle: AbstractVerticle() {
 
@@ -62,9 +64,11 @@ class WikiDatabaseVerticle: AbstractVerticle() {
       .put("max_pool_size", config().getInteger(CONFIG_WIKIDB_JDBC_MAX_POOL_SIZE, 30))
     )
 
-    WikiDatabaseService.create(dbClient, sqlQueries, Handler({ready ->
+    WikiDatabaseServiceImpl(dbClient, sqlQueries, Handler({ready ->
       if (ready.succeeded()) {
-        ProxyHelper.registerService(WikiDatabaseService::class.java, vertx, ready.result(), CONFIG_WIKIDB_QUEUE)
+        ServiceBinder(vertx)
+          .setAddress(CONFIG_WIKIDB_QUEUE)
+          .register(WikiDatabaseService::class.java, ready.result())
         startFuture.complete()
       } else {
         startFuture.fail(ready.cause())

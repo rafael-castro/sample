@@ -13,7 +13,7 @@ class MainVerticle : AbstractVerticle() {
     val dbVerticleDeployment = Future.future<String>()
     vertx.deployVerticle(WikiDatabaseVerticle(), dbVerticleDeployment.completer())
 
-    dbVerticleDeployment.compose({id ->
+    dbVerticleDeployment.compose({_ ->
       val httpVerticleDeployment = Future.future<String>()
       vertx.deployVerticle(
         "io.vertx.starter.http.HttpServerVerticle",
