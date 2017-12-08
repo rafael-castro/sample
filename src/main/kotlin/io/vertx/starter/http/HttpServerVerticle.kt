@@ -1,14 +1,17 @@
-package io.vertx.starter
+package io.vertx.starter.http
 
 import com.github.rjeschke.txtmark.Processor
 import io.vertx.core.AbstractVerticle
+import io.vertx.core.AsyncResult
 import io.vertx.core.Future
+import io.vertx.core.Handler
 import io.vertx.core.eventbus.DeliveryOptions
 import io.vertx.core.json.JsonObject
 import io.vertx.ext.web.Router
 import io.vertx.ext.web.handler.BodyHandler
 import io.vertx.ext.web.templ.FreeMarkerTemplateEngine
 import io.vertx.ext.web.RoutingContext
+import io.vertx.starter.database.WikiDatabaseService
 import org.slf4j.LoggerFactory
 import java.util.Date
 
@@ -23,12 +26,17 @@ class HttpServerVerticle : AbstractVerticle() {
 
   private val templateEngine: FreeMarkerTemplateEngine = FreeMarkerTemplateEngine.create()
 
-  private var wikiDbQueue = "wikidb.queue"
+  private val wikiDbQueue: String
+
+  private val dbService: WikiDatabaseService
+
+  init {
+    wikiDbQueue = config().getString(CONFIG_WIKIDB_QUEUE, "wikidb.queue")
+    dbService = WikiDatabaseService.createProxy(vertx, wikiDbQueue)
+  }
 
   @Throws(Exception::class)
   override fun start(startFuture: Future<Void>){
-    wikiDbQueue = config().getString(CONFIG_WIKIDB_QUEUE, "wikidb.queue")
-
     val server = vertx.createHttpServer()
 
     val router = Router.router(vertx)
@@ -54,17 +62,11 @@ class HttpServerVerticle : AbstractVerticle() {
   }
 
   private fun indexHandler(context: RoutingContext) {
-    val options = DeliveryOptions()
-      .addHeader("action", "all-pages")
-
-    vertx
-      .eventBus()
-      .send<Any>(wikiDbQueue, JsonObject(), options, { reply ->
+    dbService.fetchAllPages(Handler{ reply ->
         if (reply.succeeded()) {
-          val body = reply.result().body() as JsonObject
           context.put("title", "Wiki home")
-          context.put("pages", body.getJsonArray("pages").list)
-          templateEngine.render(context, "templates", "/index.ftl", {ar ->
+          context.put("pages", reply.result().list)
+          templateEngine.render(context, "templates", "/index.ftl", { ar ->
             if (ar.succeeded()) {
               context.response().putHeader("Content-Type", "text/html")
               context.response().end(ar.result())
@@ -80,29 +82,22 @@ class HttpServerVerticle : AbstractVerticle() {
 
   private fun pageRenderingHandler(context: RoutingContext) {
     val requestedPage = context.request().getParam("page")
-    val request = JsonObject().put("page", requestedPage)
 
-    val options = DeliveryOptions()
-      .addHeader("action", "get-page")
-
-    vertx
-      .eventBus()
-      .send<Any>(wikiDbQueue, request, options, {reply ->
+    dbService.fetchPage(requestedPage, Handler{reply ->
         if (reply.succeeded()) {
-          val body = reply.result().body() as JsonObject
-
-          val found = body.getBoolean("found")
-          val rawContent = body.getString("rawContent", EMPTY_PAGE_MARKDOWN)
+          val payload = reply.result()
+          val found = payload.getBoolean("found")
+          val rawContent = payload.getString("rawContent", EMPTY_PAGE_MARKDOWN)
           with(context) {
             put("title", requestedPage)
-            put("id", body.getInteger("id", -1))
+            put("id", payload.getInteger("id", -1))
             put("newPage", if (found) "no" else "yes")
             put("rawContent", rawContent)
             put("content", Processor.process(rawContent))
             put("timestamp", Date().toString())
           }
 
-          templateEngine.render(context, "templates", "/page.ftl", {ar ->
+          templateEngine.render(context, "templates", "/page.ftl", { ar ->
             if (ar.succeeded()) {
               context.response().putHeader("Content-Type", "text/html")
               context.response().end(ar.result())
@@ -118,26 +113,24 @@ class HttpServerVerticle : AbstractVerticle() {
 
   private fun pageUpdateHandler(context: RoutingContext) {
     val title = context.request().getParam("title")
-    val action = if (context.request().getParam("newPage") === "yes") { "create-page" } else {"save-page"}
-    val request = JsonObject()
-      .put("id", context.request().getParam("id"))
-      .put("title", title)
-      .put("markdown", context.request().getParam("markdown"))
+    val markdown = context.request().getParam("markdown")
+    val id = Integer.valueOf(context.request().getParam("id"))
 
-    val options = DeliveryOptions()
-      .addHeader("action", action)
+    val handler: Handler<AsyncResult<Void>> = Handler{reply ->
+      if (reply.succeeded()) {
+        context.response().statusCode = 303
+        context.response().putHeader("Location", "/wiki/$title")
+        context.response().end()
+      } else {
+        context.fail(reply.cause())
+      }
+    }
 
-    vertx
-      .eventBus()
-      .send<Any>(wikiDbQueue, request, options, {reply ->
-        if (reply.succeeded()) {
-          context.response().statusCode = 303
-          context.response().putHeader("Location", "/wiki/$title")
-          context.response().end()
-        } else {
-          context.fail(reply.cause())
-        }
-      })
+    if (context.request().getParam("newPage") === "yes") {
+      dbService.createPage(title, markdown, handler)
+    } else {
+      dbService.savePage(id, markdown, handler)
+    }
   }
 
   private fun pageCreateHandler(context: RoutingContext) {
