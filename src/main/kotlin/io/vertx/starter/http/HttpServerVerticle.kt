@@ -241,8 +241,8 @@ class HttpServerVerticle : AbstractVerticle() {
           .stream()
           .map({obj ->
             JsonObject()
-              .put("id", obj.getInteger("id"))
-              .put("name", obj.getString("name"))
+              .put("id", obj.getInteger("ID"))
+              .put("name", obj.getString("NAME"))
           })
           .collect(Collectors.toList())
 
