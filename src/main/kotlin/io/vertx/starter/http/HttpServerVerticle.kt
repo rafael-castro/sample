@@ -6,6 +6,7 @@ import io.vertx.core.AsyncResult
 import io.vertx.core.Future
 import io.vertx.core.Handler
 import io.vertx.core.eventbus.DeliveryOptions
+import io.vertx.core.json.Json
 import io.vertx.core.json.JsonObject
 import io.vertx.ext.web.Router
 import io.vertx.ext.web.handler.BodyHandler
@@ -16,9 +17,9 @@ import io.vertx.ext.web.client.WebClientOptions
 import io.vertx.ext.web.codec.BodyCodec
 import io.vertx.starter.database.WikiDatabaseService
 import org.slf4j.LoggerFactory
-import java.util.Date
 import io.vertx.serviceproxy.ServiceProxyBuilder
-
+import java.util.*
+import java.util.stream.Collectors
 
 
 class HttpServerVerticle : AbstractVerticle() {
@@ -57,6 +58,16 @@ class HttpServerVerticle : AbstractVerticle() {
     router.post("/create").handler(this::pageCreateHandler)
     router.post("/delete").handler(this::pageDeletionHandler)
     router.post("/backup").handler(this::backupHandler)
+
+    val apiRouter = Router.router(vertx)
+    apiRouter.get("/pages").handler(this::apiRoot)
+    apiRouter.get("/pages/:id").handler(this::apiGetPage)
+    apiRouter.post().handler(BodyHandler.create())
+    apiRouter.post("/pages").handler(this::apiCreatePage)
+    apiRouter.put().handler(BodyHandler.create())
+    apiRouter.put("/pages/:id").handler(this::apiUpdatePage)
+    apiRouter.delete("/pages/:id").handler(this::apiDeletePage)
+    router.mountSubRouter("/api", apiRouter)
 
     val portNumber = config().getInteger(CONFIG_HTTP_SERVER_PORT, 8080)
     server
@@ -220,6 +231,146 @@ class HttpServerVerticle : AbstractVerticle() {
         context.fail(reply.cause())
       }
     }))
+  }
+
+  private fun apiRoot(context: RoutingContext) {
+    dbService.fetchAllPagesData(Handler({ reply ->
+      val response = JsonObject()
+      if (reply.succeeded()) {
+        val pages = reply.result()
+          .stream()
+          .map({obj ->
+            JsonObject()
+              .put("id", obj.getInteger("id"))
+              .put("name", obj.getString("name"))
+          })
+          .collect(Collectors.toList())
+
+        response
+          .put("success", true)
+          .put("pages", pages)
+
+        with(context.response()) {
+          statusCode = 200
+          putHeader("Content-Type", "application/json")
+          end(response.encode())
+        }
+      } else {
+        response
+          .put("success", false)
+          .put("error", reply.cause().message)
+
+        with(context.response()) {
+          statusCode = 500
+          putHeader("Content-Type", "application/json")
+          end(response.encode())
+        }
+      }
+    }))
+  }
+
+  private fun apiGetPage(context: RoutingContext) {
+    val id = context.request().getParam("id").toInt()
+    dbService.fetchPageById(id, Handler({reply ->
+      val response = JsonObject()
+      if (reply.succeeded()) {
+        val dbObject = reply.result()
+
+        if (dbObject.getBoolean("found")) {
+          val payload = JsonObject()
+            .put("name", dbObject.getString("name"))
+            .put("id", dbObject.getInteger("id"))
+            .put("markdown", dbObject.getString("content"))
+            .put("html", Processor.process(dbObject.getString("content")))
+          response
+            .put("success", true)
+            .put("page", payload)
+
+          context.response().statusCode = 200
+        } else {
+          context.response().statusCode = 404
+          response
+            .put("success", false)
+            .put("error", "There is no page with ID $id")
+        }
+      } else {
+        response
+          .put("success", false)
+          .put("error", reply.cause().message)
+        context.response().statusCode = 500
+      }
+
+      context.response().putHeader("Content-Type", "application/json")
+      context.response().end(response.encode())
+    }))
+  }
+
+  private fun apiCreatePage(context: RoutingContext) {
+    val page = context.bodyAsJson
+
+    if (!validateJsonPageDocument(context, page, "name", "markdown")) {
+      return
+    }
+
+    dbService.createPage(page.getString("name"), page.getString("markdown"), Handler({reply ->
+      if (reply.succeeded()) {
+        context.response().statusCode = 201
+        context.response().putHeader("Content-Type", "application/json")
+        context.response().end(JsonObject().put("success", true).encode())
+      } else {
+        context.response().statusCode = 500
+        context.response().putHeader("Content-Type", "application/json")
+        context.response().end(JsonObject()
+          .put("success", false)
+          .put("error", reply.cause().message).encode())
+      }
+    }))
+  }
+
+  private fun apiUpdatePage(context: RoutingContext) {
+    val id = context.request().getParam("id").toInt()
+    val page = context.bodyAsJson
+    if (!validateJsonPageDocument(context, page, "markdown")) {
+      return
+    }
+    dbService.savePage(id, page.getString("markdown"), Handler({reply ->
+      handlerSimpleDbReply(context, reply)
+    }))
+  }
+
+  private fun apiDeletePage(context: RoutingContext) {
+    val id = context.request().getParam("id").toInt()
+    dbService.deletePage(id, Handler({reply ->
+      handlerSimpleDbReply(context, reply)
+    }))
+  }
+
+  private fun validateJsonPageDocument(context: RoutingContext, page: JsonObject, vararg expectedKeys: String): Boolean {
+    if (!Arrays.stream(expectedKeys).allMatch(page::containsKey)) {
+      LOGGER.error("Bad page creation JSON payload: ${page.encodePrettily()} from ${context.request().remoteAddress()}")
+      context.response().statusCode = 400
+      context.response().putHeader("Content-Type", "application/json")
+      context.response().end(JsonObject()
+        .put("success", false)
+        .put("error", "Bad request payload")
+        .encode())
+      return false
+    }
+    return true
+  }
+
+  private fun handlerSimpleDbReply(context: RoutingContext, reply: AsyncResult<Void>) {
+    if (reply.succeeded()) {
+      context.response().statusCode = 200
+      context.response().putHeader("Content-Type", "application/json")
+      context.response().end(JsonObject().put("success", true).encode())
+    } else {
+      context.response().statusCode = 500
+      context.response().putHeader("Content-Type", "application/json")
+      context.response().end(JsonObject()
+        .put("success", false)
+        .put("error", reply.cause().message).encode())
+    }
   }
 
 }

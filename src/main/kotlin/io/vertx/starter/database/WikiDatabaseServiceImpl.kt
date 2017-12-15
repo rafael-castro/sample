@@ -92,6 +92,31 @@ class WikiDatabaseServiceImpl(private val dbClient: JDBCClient, private val sqlQ
     return this
   }
 
+  override fun fetchPageById(id: Int, resultHandler: Handler<AsyncResult<JsonObject>>): WikiDatabaseService {
+    dbClient.queryWithParams(sqlQueries[SqlQuery.GET_PAGE_BY_ID], JsonArray().add(id), {fetch ->
+      if (fetch.succeeded()) {
+        val response = JsonObject()
+        val resultSet = fetch.result()
+
+        if (resultSet.numRows == 0) {
+          response.put("found", false)
+        } else {
+          response.put("found", true)
+          val row = resultSet.results[0]
+          response.put("id", row.getInteger(0))
+          response.put("name", row.getString(1))
+          response.put("content", row.getString(2))
+        }
+        resultHandler.handle(Future.succeededFuture(response))
+      } else {
+        LOGGER.error("Database query error", fetch.cause())
+        resultHandler.handle(Future.failedFuture(fetch.cause()))
+      }
+    })
+
+    return this
+  }
+
   override fun createPage(title: String, markdown: String, resultHandler: Handler<AsyncResult<Void>>): WikiDatabaseService {
     val data = JsonArray().add(title).add(markdown)
     dbClient.updateWithParams(sqlQueries[SqlQuery.CREATE_PAGE], data, {res ->
