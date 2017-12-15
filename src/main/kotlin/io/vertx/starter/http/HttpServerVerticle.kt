@@ -11,6 +11,9 @@ import io.vertx.ext.web.Router
 import io.vertx.ext.web.handler.BodyHandler
 import io.vertx.ext.web.templ.FreeMarkerTemplateEngine
 import io.vertx.ext.web.RoutingContext
+import io.vertx.ext.web.client.WebClient
+import io.vertx.ext.web.client.WebClientOptions
+import io.vertx.ext.web.codec.BodyCodec
 import io.vertx.starter.database.WikiDatabaseService
 import org.slf4j.LoggerFactory
 import java.util.Date
@@ -33,14 +36,18 @@ class HttpServerVerticle : AbstractVerticle() {
 
   private lateinit var dbService: WikiDatabaseService
 
+  private lateinit var webClient: WebClient
+
   @Throws(Exception::class)
   override fun start(startFuture: Future<Void>){
     val server = vertx.createHttpServer()
 
-
     wikiDbQueue = config().getString(CONFIG_WIKIDB_QUEUE, "wikidb.queue")
     val builder = ServiceProxyBuilder(vertx).setAddress(wikiDbQueue)
     dbService = builder.build(WikiDatabaseService::class.java)
+    webClient = WebClient.create(vertx, WebClientOptions()
+      .setSsl(true)
+      .setUserAgent("vert-x3"))
 
     val router = Router.router(vertx)
     router.get("/").handler(this::indexHandler)
@@ -49,6 +56,7 @@ class HttpServerVerticle : AbstractVerticle() {
     router.post("/save").handler(this::pageUpdateHandler)
     router.post("/create").handler(this::pageCreateHandler)
     router.post("/delete").handler(this::pageDeletionHandler)
+    router.post("/backup").handler(this::backupHandler)
 
     val portNumber = config().getInteger(CONFIG_HTTP_SERVER_PORT, 8080)
     server
@@ -161,6 +169,57 @@ class HttpServerVerticle : AbstractVerticle() {
           context.fail(reply.cause())
         }
       })
+  }
+
+  private fun backupHandler(context: RoutingContext) {
+    dbService.fetchAllPagesData(Handler({reply ->
+      if (reply.succeeded()) {
+        val filesObject = JsonObject()
+        val gistPayload = JsonObject()
+          .put("files", filesObject)
+          .put("description", "A wiki backup")
+          .put("public", true)
+
+        reply
+          .result()
+          .forEach({page ->
+            filesObject.put(page.getString("NAME"), JsonObject()
+              .put("content", page.getString("CONTENT")))
+          })
+
+        webClient.post(443, "api.github", "/gists")
+          .putHeader("Accept", "application/vnd.github.v3+json")
+          .putHeader("Content-Type", "application/json")
+          .`as`(BodyCodec.jsonObject())
+          .sendJsonObject(gistPayload, {ar ->
+            if (ar.succeeded()) {
+              val response = ar.result()
+              if (response.statusCode() == 201) {
+                context.put("backup_gist_url", response.body().getString("html_url"))
+                indexHandler(context)
+              } else {
+                val message = StringBuilder()
+                  .append("Could not backup the wiki: ")
+                  .append(response.statusMessage())
+                val body = response.body()
+                if (body != null) {
+                  message
+                    .append(System.getProperty("line.separator"))
+                    .append(body.encodePrettily())
+                }
+                LOGGER.error(message.toString())
+                context.fail(502)
+              }
+            } else {
+              val err = ar.cause()
+              LOGGER.error("HTTP Client error", err)
+              context.fail(err)
+            }
+          })
+      } else {
+        context.fail(reply.cause())
+      }
+    }))
   }
 
 }

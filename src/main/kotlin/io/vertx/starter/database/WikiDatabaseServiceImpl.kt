@@ -35,6 +35,19 @@ class WikiDatabaseServiceImpl(private val dbClient: JDBCClient, private val sqlQ
     })
   }
 
+  override fun fetchAllPagesData(resultHandler: Handler<AsyncResult<List<JsonObject>>>): WikiDatabaseService {
+    dbClient.query(sqlQueries[SqlQuery.ALL_PAGES_DATA], { queryResult ->
+      if (queryResult.succeeded()) {
+        resultHandler.handle(Future.succeededFuture(queryResult.result().rows))
+      } else {
+        LOGGER.error("Database query error", queryResult.cause())
+        resultHandler.handle(Future.failedFuture(queryResult.cause()))
+      }
+    })
+
+    return this
+  }
+
   override fun fetchAllPages(resultHandler: Handler<AsyncResult<JsonArray>>): WikiDatabaseService {
     dbClient.query(sqlQueries[SqlQuery.ALL_PAGES], {res ->
       if (res.succeeded()) {

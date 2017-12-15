@@ -14,6 +14,9 @@ import javax.lang.model.SourceVersion
 interface WikiDatabaseService {
 
   @Fluent
+  fun fetchAllPagesData(resultHandler: Handler<AsyncResult<List<JsonObject>>>): WikiDatabaseService
+
+  @Fluent
   fun fetchAllPages(resultHandler: Handler<AsyncResult<JsonArray>>): WikiDatabaseService
 
   @Fluent
