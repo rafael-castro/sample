@@ -9,6 +9,7 @@ import io.vertx.ext.unit.junit.VertxUnitRunner
 import io.vertx.ext.web.client.WebClient
 import io.vertx.ext.web.client.WebClientOptions
 import io.vertx.ext.web.codec.BodyCodec
+import io.vertx.kotlin.core.net.JksOptions
 import io.vertx.starter.database.WikiDatabaseVerticle
 import org.junit.After
 import org.junit.Before
@@ -34,9 +35,15 @@ class ApiTest {
 
     vertx.deployVerticle(HttpServerVerticle(), context.asyncAssertSuccess())
 
-    webClient = WebClient.create(vertx, WebClientOptions()
-      .setDefaultHost("localhost")
-      .setDefaultPort(8080))
+    webClient = WebClient.create(vertx, WebClientOptions().apply {
+      defaultHost = "localhost"
+      defaultPort = 8080
+      isSsl = true
+      trustOptions = JksOptions().apply {
+        path = "server-keystore.jks"
+        password = "secret"
+      }
+    })
   }
 
   @After
@@ -48,9 +55,10 @@ class ApiTest {
   fun play_with_api(context: TestContext) {
     val async = context.async()
 
-    val page = JsonObject()
-      .put("name", "Sample")
-      .put("markdown", "# A page")
+    val page = JsonObject().apply {
+      put("name", "Sample")
+      put("markdown", "# A page")
+    }
 
     val postResquest = Future.future<JsonObject>()
     webClient.post("/api/pages")

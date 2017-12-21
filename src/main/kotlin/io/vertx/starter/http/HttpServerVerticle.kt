@@ -6,8 +6,10 @@ import io.vertx.core.AsyncResult
 import io.vertx.core.Future
 import io.vertx.core.Handler
 import io.vertx.core.eventbus.DeliveryOptions
+import io.vertx.core.http.HttpServerOptions
 import io.vertx.core.json.Json
 import io.vertx.core.json.JsonObject
+import io.vertx.core.net.JksOptions
 import io.vertx.ext.web.Router
 import io.vertx.ext.web.handler.BodyHandler
 import io.vertx.ext.web.templ.FreeMarkerTemplateEngine
@@ -41,7 +43,13 @@ class HttpServerVerticle : AbstractVerticle() {
 
   @Throws(Exception::class)
   override fun start(startFuture: Future<Void>){
-    val server = vertx.createHttpServer()
+    val server = vertx.createHttpServer(HttpServerOptions().apply {
+      isSsl = true
+      keyStoreOptions = JksOptions().apply {
+        path = "server-keystore.jks"
+        password = "secret"
+      }
+    })
 
     wikiDbQueue = config().getString(CONFIG_WIKIDB_QUEUE, "wikidb.queue")
     val builder = ServiceProxyBuilder(vertx).setAddress(wikiDbQueue)

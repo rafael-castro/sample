@@ -37,8 +37,7 @@ class WikiDatabaseVerticle: AbstractVerticle() {
     queriesProps.load(queriesInputStream)
     queriesInputStream.close()
 
-    val sqlQueries = HashMap<SqlQuery, String>()
-    with (sqlQueries) {
+    return HashMap<SqlQuery, String>().apply {
       put(SqlQuery.CREATE_PAGES_TABLE, queriesProps.getProperty("create-pages-table"))
       put(SqlQuery.ALL_PAGES, queriesProps.getProperty("all-pages"))
       put(SqlQuery.GET_PAGE_BY_ID, queriesProps.getProperty("get-page-by-id"))
@@ -48,8 +47,6 @@ class WikiDatabaseVerticle: AbstractVerticle() {
       put(SqlQuery.DELETE_PAGE, queriesProps.getProperty("delete-page"))
       put(SqlQuery.ALL_PAGES_DATA, queriesProps.getProperty("all-pages-data"))
     }
-
-    return sqlQueries
   }
 
   @Throws(Exception::class)
